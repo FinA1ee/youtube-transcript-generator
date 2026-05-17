@@ -80,6 +80,24 @@ GitHub Actions deployment requires repository secrets `CLOUDFLARE_API_TOKEN` and
 - The default Gemini model is `gemini-3-flash-preview`.
 - Frontend model selection, report download/export, and durable resumable jobs are deferred capabilities.
 
+## Module Design
+
+The code is split by responsibility so external service access, request handling, report generation, and UI rendering do not duplicate logic.
+
+- `src/worker/index.ts`: Cloudflare Worker entrypoint. It creates the Hono app and exports the Worker handler.
+- `src/server/app.ts`: HTTP route layer. It serves the app shell/assets and exposes standalone API routes for Gemini preflight, transcript fetch, and streamed report generation.
+- `src/client/assets.ts`: Server-side static asset bridge. It serves the generated React bundle/styles and injects safe frontend configuration such as diagnostic-control visibility.
+- `src/client/generated.ts`: Generated client bundle output from `npm run build:client`. Do not edit by hand.
+- `src/client/react/`: React frontend source. It owns URL input, status display, diagnostic button gating, cancel/clear controls, SSE stream handling, and typewriter report rendering.
+- `src/transcripts/`: TranscriptAPI integration. It fetches YouTube captions/transcripts, normalizes provider output, enforces transcript limits, and reports sanitized provider errors.
+- `src/transcripts/token.ts`: Signed transcript handoff tokens. It lets transcript fetch stay separate from report streaming without exposing raw transcript state in the browser.
+- `src/youtube/`: YouTube URL parsing and validation helpers.
+- `src/llm/`: Gemini integration. It builds the English prompt, calls `@google/genai`, parses NDJSON report chunks, and validates streamable title/heading/paragraph events.
+- `src/reports/`: Report orchestration. It connects transcript fetch, Gemini generation, retry/error state, stream event emission, and accumulated report structure.
+- `src/shared/`: Shared TypeScript types and application error types used across backend, frontend, tests, and stream contracts.
+- `tests/unit/`: Focused tests for parser, token, transcript, Gemini, pipeline, and URL behavior.
+- `tests/e2e/`: Hono route and stream tests covering app shell/assets, standalone requests, transcript handoff, and report SSE output.
+
 ## Quality Gates
 
 Pull requests should pass:
