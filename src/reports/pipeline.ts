@@ -95,6 +95,7 @@ function createEmptyReport(transcript: Transcript): Report {
     title: "",
     subtitle: "",
     captionKind: transcript.captionKind,
+    headings: [],
     sections: []
   };
 }
@@ -108,6 +109,14 @@ function applyReportEvent(report: Report, event: StreamEvent): void {
   if (event.type === "section") {
     if (!report.sections.some((section) => section.id === event.section.id)) {
       report.sections.push({ ...event.section, paragraphs: [] });
+    }
+    return;
+  }
+  if (event.type === "heading") {
+    report.headings ??= [];
+    report.headings.push(event.heading);
+    if (!report.sections.some((section) => section.id === event.heading.id)) {
+      report.sections.push({ id: event.heading.id, heading: event.heading.text, paragraphs: [] });
     }
     return;
   }

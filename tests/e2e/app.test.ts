@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../src/server/app";
-import { AppError } from "../../src/shared/types";
-import { report, transcript } from "../fixtures/captions";
+import { AppError, StreamEvent } from "../../src/shared/types";
+import { hierarchicalReport, report, transcript } from "../fixtures/captions";
 import { FakeGeminiClient, FakeTranscriptClient, readSseEvents } from "../helpers/fakes";
 
 describe("Hono app", () => {
@@ -16,11 +16,20 @@ describe("Hono app", () => {
 
     expect(response.status).toBe(200);
     expect(html).toContain("YouTube Report Generator");
-    expect(html).toContain("Test Gemini");
-    expect(html).toContain("diagnostic-status");
+    expect(html).toContain('"enableDiagnosticControls":false');
+    expect(html).toContain('<div id="root"></div>');
     expect(html).not.toContain("GEMINI_API_KEY");
     expect(html).not.toContain("TRANSCRIPTAPI_KEY");
     expect(html).not.toContain("TRANSCRIPT_TOKEN_SECRET");
+  });
+
+  it("exposes diagnostic config only when enabled", async () => {
+    const app = createApp();
+    const response = await app.request("/", undefined, { ENABLE_DIAGNOSTIC_CONTROLS: "true" });
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain('"enableDiagnosticControls":true');
   });
 
   it("uses standalone preflight and fetch-based POST stream in the browser script", async () => {
@@ -29,10 +38,14 @@ describe("Hono app", () => {
     const script = await response.text();
 
     expect(response.status).toBe(200);
-    expect(script).toContain('fetch("/api/gemini/preflight", { method: "POST" })');
-    expect(script).toContain('fetch("/api/transcripts/fetch"');
-    expect(script).toContain('fetch("/api/reports/stream"');
-    expect(script).toContain("readSseStream");
+    expect(script).toContain("/api/gemini/preflight");
+    expect(script).toContain("/api/transcripts/fetch");
+    expect(script).toContain("/api/reports/stream");
+    expect(script).toContain("Test Gemini");
+    expect(script).toContain("Skip animation");
+    expect(script).toContain("Clear and enter new link");
+    expect(script).toContain("status-banner");
+    expect(script).toContain("report-heading");
     expect(script).not.toContain("new EventSource");
   });
 
@@ -127,7 +140,7 @@ describe("Hono app", () => {
 
   it("streams partial report events from a transcript handoff without calling TranscriptAPI", async () => {
     const transcriptClient = new FakeTranscriptClient(transcript);
-    const geminiClient = new FakeGeminiClient(report);
+    const geminiClient = new FakeGeminiClient(hierarchicalReport);
     const app = createApp(fetch, {
       createTranscriptClient: () => transcriptClient,
       createGeminiClient: () => geminiClient
@@ -155,9 +168,18 @@ describe("Hono app", () => {
     const events = await readSseEvents(response);
 
     expect(response.status).toBe(200);
-    expect(events.map((event) => (event as { type: string }).type)).toContain("title");
-    expect(events).toContainEqual(expect.objectContaining({ type: "summary_paragraph" }));
-    expect(events).toContainEqual(expect.objectContaining({ type: "complete" }));
+    const streamEvents = events.filter(isStreamEvent);
+    const headingEvent = streamEvents.find(
+      (event) => event.type === "heading" && event.heading.id === "h3-detail"
+    );
+
+    expect(streamEvents.map((event) => event.type)).toContain("title");
+    expect(headingEvent).toMatchObject({
+      type: "heading",
+      heading: { level: 3, parentId: "h2-context" }
+    });
+    expect(streamEvents.map((event) => event.type)).toContain("summary_paragraph");
+    expect(streamEvents.map((event) => event.type)).toContain("complete");
     expect(transcriptClient.calls).toBe(1);
   });
 
@@ -195,4 +217,10 @@ function parseTranscriptTokenResponse(value: unknown): { transcriptToken: string
     return { transcriptToken: value.transcriptToken };
   }
   throw new Error("Expected transcript token response.");
+}
+
+function isStreamEvent(value: unknown): value is StreamEvent {
+  return (
+    typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
+  );
 }

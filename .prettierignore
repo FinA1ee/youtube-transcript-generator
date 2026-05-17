@@ -2,5 +2,7 @@ node_modules
 dist
 coverage
 .wrangler
+.client-build
 .codex
 openspec
+src/client/generated.ts

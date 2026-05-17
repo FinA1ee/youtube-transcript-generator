@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { collectPipelineEvents } from "../../src/reports/pipeline";
 import { AppError } from "../../src/shared/types";
-import { report, transcript } from "../fixtures/captions";
+import { hierarchicalReport, report, transcript } from "../fixtures/captions";
 import { FakeGeminiClient, FakeTranscriptClient } from "../helpers/fakes";
 
 describe("reportPipeline", () => {
@@ -60,6 +60,30 @@ describe("reportPipeline", () => {
     expect(geminiClient.calls).toBe(1);
     expect(transcriptClient.calls).toBe(1);
     expect(transcriptClient.lastUrl).toBe("https://www.youtube.com/watch?v=abc123XYZ");
+  });
+
+  it("emits hierarchical heading events before linked paragraphs", async () => {
+    const events = await collectPipelineEvents(
+      { url: "https://www.youtube.com/watch?v=abc123XYZ" },
+      {
+        transcriptClient: new FakeTranscriptClient(transcript),
+        geminiClient: new FakeGeminiClient(hierarchicalReport)
+      }
+    );
+    const headingEvent = events.find(
+      (event) => event.type === "heading" && event.heading.id === "h2-context"
+    );
+    const paragraphEvent = events.find((event) => event.type === "summary_paragraph");
+
+    expect(headingEvent).toEqual({
+      type: "heading",
+      heading: { id: "h2-context", level: 2, parentId: "h1-intro", text: "讨论背景" }
+    });
+    expect(paragraphEvent).toMatchObject({
+      type: "summary_paragraph",
+      sectionId: "h3-detail",
+      paragraph: { headingId: "h3-detail" }
+    });
   });
 
   it("does not call Gemini when transcript fetching fails", async () => {

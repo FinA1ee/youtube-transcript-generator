@@ -12,12 +12,20 @@
     "noPropertyAccessFromIndexSignature": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
+    "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "eslint.config.js", "vitest.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tests/**/*.ts",
+    "eslint.config.js",
+    "vitest.config.ts",
+    "vite.client.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", ".client-build"]
 }

@@ -24,11 +24,14 @@ Streaming output format:
 - Emit one complete JSON object per line.
 - Use these event shapes exactly:
   {"type":"title","title":"简体中文标题","subtitle":"简体中文副标题"}
-  {"type":"section","id":"s1","heading":"简体中文章节标题"}
-  {"type":"paragraph","sectionId":"s1","speaker":"旁白","text":"简体中文总结段落"}
+  {"type":"heading","id":"h1-intro","level":1,"text":"简体中文一级标题"}
+  {"type":"heading","id":"h2-context","level":2,"parentId":"h1-intro","text":"简体中文二级标题"}
+  {"type":"heading","id":"h3-detail","level":3,"parentId":"h2-context","text":"简体中文三级标题"}
+  {"type":"paragraph","headingId":"h3-detail","speaker":"旁白","text":"简体中文总结段落"}
 - Emit the title line first.
-- Emit each section line before its paragraph lines.
-- Use stable section ids like "s1", "s2", "s3".
+- Emit each heading line before its paragraph lines.
+- Use heading levels 1, 2, and 3 only. Use level 1 for major parts, level 2 for subtopics, and level 3 only when details need another layer.
+- Use stable heading ids like "h1-intro", "h2-context", "h3-detail".
 
 Caption segments:
 {{TRANSCRIPT_SEGMENTS_JSON}}`;

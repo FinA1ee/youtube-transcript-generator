@@ -3,7 +3,14 @@ import { AppError, StreamEvent } from "../shared/types";
 type NdjsonReportEvent =
   | { type: "title"; title: string; subtitle: string }
   | { type: "section"; id: string; heading: string }
-  | { type: "paragraph"; sectionId: string; speaker: string; text: string };
+  | { type: "heading"; id: string; level: 1 | 2 | 3; text: string; parentId?: string | undefined }
+  | {
+      type: "paragraph";
+      sectionId: string;
+      headingId?: string | undefined;
+      speaker: string;
+      text: string;
+    };
 
 export class NdjsonReportEventParser {
   private buffer = "";
@@ -61,13 +68,25 @@ export class NdjsonReportEventParser {
     if (event.type === "section") {
       return { type: "section", section: { id: event.id, heading: event.heading } };
     }
+    if (event.type === "heading") {
+      return {
+        type: "heading",
+        heading: {
+          id: event.id,
+          level: event.level,
+          text: event.text,
+          ...(event.parentId ? { parentId: event.parentId } : {})
+        }
+      };
+    }
 
     this.paragraphIndex += 1;
     return {
       type: "summary_paragraph",
-      sectionId: event.sectionId,
+      sectionId: event.headingId ?? event.sectionId,
       paragraph: {
         id: `p-${String(this.paragraphIndex)}`,
+        ...(event.headingId ? { headingId: event.headingId } : {}),
         text: `${event.speaker}: ${event.text}`
       }
     };
@@ -91,13 +110,41 @@ function parseNdjsonReportEvent(value: unknown): NdjsonReportEvent {
     return { type: "section", id, heading };
   }
 
-  if (value["type"] === "paragraph") {
-    const sectionId = readString(value, "sectionId");
-    const speaker = readString(value, "speaker");
+  if (value["type"] === "heading") {
+    const id = readString(value, "id");
     const text = readString(value, "text");
-    return { type: "paragraph", sectionId, speaker, text };
+    const level = readHeadingLevel(value["level"]);
+    const parentId = typeof value["parentId"] === "string" ? value["parentId"].trim() : undefined;
+    return {
+      type: "heading",
+      id,
+      level,
+      text,
+      ...(parentId ? { parentId } : {})
+    };
   }
 
+  if (value["type"] === "paragraph") {
+    const sectionId =
+      typeof value["sectionId"] === "string" && value["sectionId"].trim()
+        ? value["sectionId"].trim()
+        : readString(value, "headingId");
+    const headingId =
+      typeof value["headingId"] === "string" && value["headingId"].trim()
+        ? value["headingId"].trim()
+        : undefined;
+    const speaker = readString(value, "speaker");
+    const text = readString(value, "text");
+    return { type: "paragraph", sectionId, ...(headingId ? { headingId } : {}), speaker, text };
+  }
+
+  throw invalidChunk();
+}
+
+function readHeadingLevel(value: unknown): 1 | 2 | 3 {
+  if (value === 1 || value === 2 || value === 3) {
+    return value;
+  }
   throw invalidChunk();
 }
 

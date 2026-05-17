@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { appHtml, clientScript, styles } from "../client/assets";
+import { clientScript, renderAppHtml, styles } from "../client/assets";
 import { GeminiApiClient, GeminiClient, GeminiConfig } from "../llm/gemini";
 import { streamReportFromTranscript } from "../reports/pipeline";
 import {
@@ -19,6 +19,7 @@ export interface Env {
   GEMINI_MODEL?: string;
   TRANSCRIPTAPI_KEY?: string;
   TRANSCRIPT_TOKEN_SECRET?: string;
+  ENABLE_DIAGNOSTIC_CONTROLS?: string;
   MAX_VIDEO_DURATION_MINUTES?: string;
   MAX_TRANSCRIPT_SEGMENTS?: string;
   MAX_TRANSCRIPT_CHARACTERS?: string;
@@ -35,7 +36,10 @@ export function createApp(
 ): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
 
-  app.get("/", (c) => c.html(appHtml));
+  app.get("/", (c) => {
+    const env = (c.env as Env | undefined) ?? {};
+    return c.html(renderAppHtml(env.ENABLE_DIAGNOSTIC_CONTROLS === "true"));
+  });
   app.get("/styles.css", (c) => c.text(styles, 200, { "content-type": "text/css" }));
   app.get("/client.js", (c) =>
     c.text(clientScript, 200, { "content-type": "application/javascript" })

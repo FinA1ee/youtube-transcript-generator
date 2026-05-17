@@ -49,12 +49,20 @@ export interface Transcript {
 export interface ReportParagraph {
   id: string;
   text: string;
+  headingId?: string | undefined;
   sourceRange?:
     | {
         startMs: number;
         endMs: number;
       }
     | undefined;
+}
+
+export interface ReportHeading {
+  id: string;
+  level: 1 | 2 | 3;
+  text: string;
+  parentId?: string | undefined;
 }
 
 export interface ReportSection {
@@ -67,6 +75,7 @@ export interface Report {
   title: string;
   subtitle: string;
   captionKind?: CaptionKind | undefined;
+  headings?: ReportHeading[] | undefined;
   sections: ReportSection[];
 }
 
@@ -105,6 +114,7 @@ export type StreamEvent =
   | { type: "state"; state: GenerationState; message: string }
   | { type: "caption"; captionKind: CaptionKind; language?: string | undefined }
   | { type: "title"; title: string; subtitle: string }
+  | { type: "heading"; heading: ReportHeading }
   | { type: "section"; section: Omit<ReportSection, "paragraphs"> }
   | { type: "summary_paragraph"; sectionId: string; paragraph: ReportParagraph }
   | { type: "complete"; report: Report }

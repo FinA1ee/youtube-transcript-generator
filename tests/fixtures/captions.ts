@@ -62,3 +62,28 @@ export const report: Report = {
     }
   ]
 };
+
+export const hierarchicalReport: Report = {
+  title: "产品讨论总结",
+  subtitle: "本视频概述了产品目标和预期结果。",
+  captionKind: "manual",
+  headings: [
+    { id: "h1-intro", level: 1, text: "开场与目标" },
+    { id: "h2-context", level: 2, parentId: "h1-intro", text: "讨论背景" },
+    { id: "h3-detail", level: 3, parentId: "h2-context", text: "执行细节" }
+  ],
+  sections: [
+    {
+      id: "h3-detail",
+      heading: "执行细节",
+      paragraphs: [
+        {
+          id: "p-1",
+          headingId: "h3-detail",
+          text: "Jack: 这一段总结了产品讨论的背景、目标以及后续希望达成的结果。",
+          sourceRange: { startMs: 0, endMs: 5500 }
+        }
+      ]
+    }
+  ]
+};

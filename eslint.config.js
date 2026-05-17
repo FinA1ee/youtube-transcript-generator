@@ -9,7 +9,12 @@ export default tseslint.config(
       "node_modules/**",
       "coverage/**",
       ".codex/**",
+      ".client-build/**",
       "openspec/**",
+      "scripts/*.mjs",
+      "src/client/generated.ts",
+      "tailwind.config.ts",
+      "vite.client.config.ts",
       "*.config.js",
       "*.config.cjs"
     ]

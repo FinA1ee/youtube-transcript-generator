@@ -2,23 +2,25 @@ import { describe, expect, it } from "vitest";
 import { NdjsonReportEventParser } from "../../src/llm/ndjson";
 
 describe("NdjsonReportEventParser", () => {
-  it("parses complete title, section, and paragraph lines", () => {
+  it("parses complete title, heading, and paragraph lines", () => {
     const parser = new NdjsonReportEventParser();
     const events = parser.push(
       [
         '{"type":"title","title":"标题","subtitle":"副标题"}',
-        '{"type":"section","id":"s1","heading":"开场"}',
-        '{"type":"paragraph","sectionId":"s1","speaker":"旁白","text":"这里是总结。"}'
+        '{"type":"heading","id":"h1","level":1,"text":"开场"}',
+        '{"type":"heading","id":"h2","level":2,"parentId":"h1","text":"背景"}',
+        '{"type":"paragraph","headingId":"h2","speaker":"旁白","text":"这里是总结。"}'
       ].join("\n") + "\n"
     );
 
     expect(events).toEqual([
       { type: "title", title: "标题", subtitle: "副标题" },
-      { type: "section", section: { id: "s1", heading: "开场" } },
+      { type: "heading", heading: { id: "h1", level: 1, text: "开场" } },
+      { type: "heading", heading: { id: "h2", level: 2, parentId: "h1", text: "背景" } },
       {
         type: "summary_paragraph",
-        sectionId: "s1",
-        paragraph: { id: "p-1", text: "旁白: 这里是总结。" }
+        sectionId: "h2",
+        paragraph: { id: "p-1", headingId: "h2", text: "旁白: 这里是总结。" }
       }
     ]);
   });
@@ -55,5 +57,18 @@ describe("NdjsonReportEventParser", () => {
     const parser = new NdjsonReportEventParser();
 
     expect(() => parser.push('{"type":"unknown"}\n')).toThrow();
+  });
+
+  it("rejects heading levels outside h1 to h3", () => {
+    const parser = new NdjsonReportEventParser();
+
+    expect(() => parser.push('{"type":"heading","id":"h4","level":4,"text":"过深"}\n')).toThrow();
+  });
+
+  it("keeps section chunks as a compatibility alias", () => {
+    const parser = new NdjsonReportEventParser();
+    parser.push('{"type":"section","id":"s1","heading":"开场"}');
+
+    expect(parser.flush()).toEqual([{ type: "section", section: { id: "s1", heading: "开场" } }]);
   });
 });

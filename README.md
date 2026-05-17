@@ -18,9 +18,13 @@ cp .env.example .dev.vars
 
 Set `GEMINI_API_KEY`, `TRANSCRIPTAPI_KEY`, and `TRANSCRIPT_TOKEN_SECRET` in `.dev.vars` for local development. In Cloudflare, store all three values as Worker secrets. Use a long random value for `TRANSCRIPT_TOKEN_SECRET`; it signs short-lived transcript handoff tokens between transcript fetch and report streaming.
 
+Set `ENABLE_DIAGNOSTIC_CONTROLS=true` only when you want the UI to show the standalone Gemini test control during local testing or dry runs. It is hidden by default.
+
 ## Commands
 
 - `npm run dev`: run the Worker locally with Wrangler.
+- `npm run build:client`: build the React/Vite/Tailwind browser bundle and embed it into `src/client/generated.ts`.
+- `npm run build`: run the frontend build step.
 - `npm test`: run unit and e2e tests.
 - `npm run test:unit`: run unit tests.
 - `npm run test:e2e`: run e2e tests.
@@ -35,6 +39,8 @@ Set `GEMINI_API_KEY`, `TRANSCRIPTAPI_KEY`, and `TRANSCRIPT_TOKEN_SECRET` in `.de
 - Captions must be available through TranscriptAPI.com. The app does not download or transcribe audio/video.
 - TranscriptAPI is called only from the Worker backend with server-side Bearer-token authentication. Transcript fetching runs as a standalone request before report streaming starts.
 - Gemini setup preflight runs as a standalone JSON request. The report stream is reserved for Gemini report-generation chunks.
+- The frontend is a React/Vite bundle served by Hono. Report title, subtitle, headings, and summary paragraphs render incrementally with a typewriter effect while the POST SSE stream is active.
+- The skip-animation control appears only during report generation/rendering, and the clear-content control resets the current report so a new link can be entered.
 - Auto-generated and manual captions are labeled in the English UI only when the transcript provider exposes that metadata.
 - Videos longer than 100 minutes are rejected before Gemini generation.
 - The transcript token budget is currently unknown and remains a documented implementation limit to tune later.

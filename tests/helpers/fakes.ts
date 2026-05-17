@@ -47,6 +47,9 @@ export class FakeGeminiClient implements GeminiClient {
     await Promise.resolve();
     this.calls += 1;
     yield { type: "title", title: this.report.title, subtitle: this.report.subtitle };
+    for (const heading of this.report.headings ?? []) {
+      yield { type: "heading", heading };
+    }
     for (const section of this.report.sections) {
       yield { type: "section", section: { id: section.id, heading: section.heading } };
       for (const paragraph of section.paragraphs) {
