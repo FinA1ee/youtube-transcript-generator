@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import { collectPipelineEvents } from "../../src/reports/pipeline";
+import { AppError } from "../../src/shared/types";
+import { report, transcript } from "../fixtures/captions";
+import { FakeGeminiClient, FakeTranscriptClient } from "../helpers/fakes";
+
+describe("reportPipeline", () => {
+  it("emits ordered state, caption, streamed report, and completion events", async () => {
+    const geminiClient = new FakeGeminiClient(report);
+    const transcriptClient = new FakeTranscriptClient(transcript);
+    const events = await collectPipelineEvents(
+      { url: "https://www.youtube.com/watch?v=abc123XYZ" },
+      {
+        transcriptClient,
+        geminiClient
+      }
+    );
+
+    expect(geminiClient.preflightCalls).toBe(0);
+    expect(events.map((event) => event.type)).toEqual([
+      "state",
+      "state",
+      "caption",
+      "state",
+      "title",
+      "section",
+      "summary_paragraph",
+      "complete"
+    ]);
+  });
+
+  it("does not call dependencies for invalid URLs", async () => {
+    const transcriptClient = new FakeTranscriptClient(transcript);
+    const events = await collectPipelineEvents(
+      { url: "https://example.com/video" },
+      {
+        transcriptClient,
+        geminiClient: new FakeGeminiClient(report)
+      }
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "invalid_youtube_url" });
+    expect(transcriptClient.calls).toBe(0);
+  });
+
+  it("fetches transcript before calling Gemini report generation", async () => {
+    const transcriptClient = new FakeTranscriptClient(transcript);
+    const geminiClient = new FakeGeminiClient(report);
+
+    const events = await collectPipelineEvents(
+      { url: "https://www.youtube.com/watch?v=abc123XYZ" },
+      {
+        transcriptClient,
+        geminiClient
+      }
+    );
+
+    expect(events).toContainEqual(expect.objectContaining({ type: "caption" }));
+    expect(geminiClient.preflightCalls).toBe(0);
+    expect(geminiClient.calls).toBe(1);
+    expect(transcriptClient.calls).toBe(1);
+    expect(transcriptClient.lastUrl).toBe("https://www.youtube.com/watch?v=abc123XYZ");
+  });
+
+  it("does not call Gemini when transcript fetching fails", async () => {
+    const transcriptClient = new FakeTranscriptClient(
+      new AppError("transcript_provider_error", "Transcript service failed.", 502)
+    );
+    const geminiClient = new FakeGeminiClient(report);
+
+    const events = await collectPipelineEvents(
+      { url: "https://www.youtube.com/watch?v=abc123XYZ" },
+      {
+        transcriptClient,
+        geminiClient
+      }
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      code: "transcript_provider_error"
+    });
+    expect(geminiClient.calls).toBe(0);
+  });
+});
