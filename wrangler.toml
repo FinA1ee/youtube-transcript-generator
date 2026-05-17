@@ -1,7 +1,8 @@
 name = "youtube-subscript-generator"
 main = "src/worker/index.ts"
-compatibility_date = "2026-05-16"
+compatibility_date = "2026-05-03"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
 
 [vars]
 GEMINI_MODEL = "gemini-3-flash-preview"

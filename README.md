@@ -43,6 +43,15 @@ Before deploying, configure these Cloudflare Worker secrets:
 - `TRANSCRIPTAPI_KEY`: TranscriptAPI.com API key.
 - `TRANSCRIPT_TOKEN_SECRET`: long random string used to sign transcript handoff tokens.
 
+Wrangler also needs Cloudflare authentication. For local interactive use, run `npx wrangler login`. For CI or any non-interactive environment, create a Cloudflare API token and expose it as `CLOUDFLARE_API_TOKEN` before running Wrangler. Create the token from the Cloudflare dashboard under My Profile > API Tokens, then copy the token secret when Cloudflare shows it. Cloudflare only shows the token secret once.
+
+For a local non-interactive shell:
+
+```bash
+export CLOUDFLARE_API_TOKEN="your-cloudflare-api-token"
+npx wrangler deploy
+```
+
 Optional runtime variables:
 
 - `ENABLE_DIAGNOSTIC_CONTROLS=true`: shows the Gemini test button in the UI.
@@ -65,6 +74,14 @@ npx wrangler deploy
 ```
 
 GitHub Actions deployment requires repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The CI workflow installs dependencies, builds the React client, runs typecheck/lint/format/tests, then deploys through Wrangler on `main` or when manually dispatched with deploy enabled.
+
+After deployment, use the exact URL printed by Wrangler. For Workers.dev it should look like:
+
+```text
+https://youtube-subscript-generator.<your-workers-subdomain>.workers.dev
+```
+
+Do not use `workers.dev://...`, the bare `https://workers.dev`, or `https://youtube-subscript-generator.workers.dev` unless Wrangler printed that exact URL. If the browser reports that `workers.dev` uses an unsupported protocol, first confirm that the copied URL starts with `https://` and includes the account Workers subdomain. The project sets `workers_dev = true` in `wrangler.toml`; if the URL still fails, check that the account Workers.dev subdomain is enabled in the Cloudflare dashboard.
 
 ## Behavior
 
