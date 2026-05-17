@@ -33,6 +33,39 @@ Set `ENABLE_DIAGNOSTIC_CONTROLS=true` only when you want the UI to show the stan
 - `npm run format`: check formatting.
 - `npm run deploy`: deploy to Cloudflare.
 
+## Cloudflare Deployment
+
+The Worker entrypoint is `src/worker/index.ts`, configured by `wrangler.toml`. Non-secret defaults are stored in `[vars]`: `GEMINI_MODEL=gemini-3-flash-preview` and `MAX_VIDEO_DURATION_MINUTES=100`.
+
+Before deploying, configure these Cloudflare Worker secrets:
+
+- `GEMINI_API_KEY`: Gemini AI Studio API key.
+- `TRANSCRIPTAPI_KEY`: TranscriptAPI.com API key.
+- `TRANSCRIPT_TOKEN_SECRET`: long random string used to sign transcript handoff tokens.
+
+Optional runtime variables:
+
+- `ENABLE_DIAGNOSTIC_CONTROLS=true`: shows the Gemini test button in the UI.
+- `MAX_TRANSCRIPT_SEGMENTS`: optional transcript truncation guard.
+- `MAX_TRANSCRIPT_CHARACTERS`: optional transcript truncation guard.
+
+Local deployment flow:
+
+```bash
+npm ci
+npm run build
+npm run typecheck
+npm run lint
+npm run format
+npm test
+npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put TRANSCRIPTAPI_KEY
+npx wrangler secret put TRANSCRIPT_TOKEN_SECRET
+npx wrangler deploy
+```
+
+GitHub Actions deployment requires repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. The CI workflow installs dependencies, builds the React client, runs typecheck/lint/format/tests, then deploys through Wrangler on `main` or when manually dispatched with deploy enabled.
+
 ## Behavior
 
 - Supported URLs include `youtube.com/watch?v=...`, `youtu.be/...`, `/embed/...`, and `/shorts/...`.
@@ -52,6 +85,7 @@ Set `ENABLE_DIAGNOSTIC_CONTROLS=true` only when you want the UI to show the stan
 Pull requests should pass:
 
 ```bash
+npm run build
 npm run typecheck
 npm run lint
 npm run format
