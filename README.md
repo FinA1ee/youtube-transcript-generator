@@ -1,5 +1,7 @@
 # YouTube Report Generator
 
+<img width="1359" height="770" alt="image" src="https://github.com/user-attachments/assets/794ff113-5308-47c2-8814-34566a2788bd" />
+
 TypeScript full-stack app for generating a streamed Simplified Chinese report from a YouTube video that exposes captions. The backend is a Hono app deployed on Cloudflare Workers. The UI is English; generated report content is Simplified Chinese only.
 
 ## Requirements
