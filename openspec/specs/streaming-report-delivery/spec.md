@@ -4,31 +4,40 @@
 TBD - created by archiving change build-streaming-youtube-report-app. Update Purpose after archive.
 ## Requirements
 ### Requirement: Stream report generation over SSE
-The system SHALL provide an SSE endpoint that accepts a report generation request and streams typed report events to the browser while backend work is in progress. The report-generation SSE endpoint SHALL NOT run Gemini preflight before transcript acquisition.
+The system SHALL provide a report streaming endpoint that accepts a previously fetched transcript handoff and streams typed report events to the browser while Gemini generation is in progress. The report-generation stream SHALL NOT run Gemini preflight or fetch transcripts.
 
 #### Scenario: SSE generation starts
-- **WHEN** the browser opens the report SSE stream with a valid generation request
-- **THEN** the system starts the report pipeline and emits progress events before completion
-- **AND** does not run Gemini preflight before caption fetching
+- **WHEN** the browser opens the report stream with a valid transcript handoff
+- **THEN** the system verifies the handoff and starts Gemini report generation
+- **AND** does not run Gemini preflight
+- **AND** does not call the transcript provider
 
-#### Scenario: Invalid SSE request is submitted
-- **WHEN** the browser opens the report SSE stream with an invalid generation request
-- **THEN** the system emits an error event and closes the stream without calling YouTube or Gemini
+#### Scenario: Invalid stream request is submitted
+- **WHEN** the browser opens the report stream without a valid transcript handoff
+- **THEN** the system emits or returns an error without calling the transcript provider or Gemini
 
 ### Requirement: Emit typed stream events
-The system SHALL emit JSON events with explicit event types for progress, partial Simplified Chinese report content, speaker-labeled summary paragraphs, errors, and completion.
+The system SHALL emit JSON events with explicit event types for report-generation progress, partial Simplified Chinese report title, hierarchical headings, speaker-labeled summary paragraphs, errors, and completion.
 
-#### Scenario: Partial report is generated
-- **WHEN** the backend receives or derives partial report content
-- **THEN** the system emits typed Simplified Chinese speaker-labeled summary events that the browser can render incrementally
+#### Scenario: Title is generated
+- **WHEN** the backend parses a valid Gemini title chunk
+- **THEN** the system immediately emits the corresponding typed title stream event that the browser can render incrementally
+
+#### Scenario: Heading is generated
+- **WHEN** the backend parses a valid Gemini heading chunk
+- **THEN** the system immediately emits the corresponding typed heading stream event including heading level
+
+#### Scenario: Partial report paragraph is generated
+- **WHEN** the backend parses a valid Gemini paragraph chunk after transcript handoff verification
+- **THEN** the system immediately emits the corresponding typed paragraph stream event that the browser can render incrementally
 
 #### Scenario: Generation state changes
-- **WHEN** the backend moves through validation, caption fetching, transcript preparation, Gemini generation, streaming, completion, retry, or error states
+- **WHEN** the backend moves through Gemini generation, streaming, completion, retry, or error states
 - **THEN** the system emits typed progress or state events that the browser can display as user-facing notifications
 
 #### Scenario: Generation completes
-- **WHEN** the report model is fully validated
-- **THEN** the system emits a complete event containing or referencing the final report state
+- **WHEN** Gemini generation finishes and the backend has emitted all usable report content
+- **THEN** the system emits a complete event for the current report stream
 
 ### Requirement: Support client cancellation
 The system SHALL stop report generation when the client closes the SSE connection, including when the user clicks the cancel button.
@@ -57,22 +66,50 @@ The system SHALL support browser retry handling by emitting ordered SSE events a
 - **THEN** the browser shows a retry-failed notification, leaves partial rendered content visible, and allows the user to re-enter the URL
 
 ### Requirement: Protect the stream from secret leakage
-The system SHALL never send Gemini API keys, Cloudflare credentials, internal stack traces, or raw provider error payloads to the browser over the report stream.
+The system SHALL never send Gemini API keys, TranscriptAPI keys, transcript token secrets, Cloudflare credentials, internal stack traces, raw provider error payloads, or raw generation requirement validation internals to the browser over the report stream.
 
 #### Scenario: Provider error occurs
 - **WHEN** an upstream provider fails with a detailed internal error
 - **THEN** the system emits a sanitized user-visible error event
 
+#### Scenario: Heading or title chunk is malformed
+- **WHEN** Gemini returns malformed heading or title output
+- **THEN** the system emits a sanitized generation error or skips the malformed chunk according to implementation policy
+
+#### Scenario: Requirement validation fails
+- **WHEN** generation requirement validation fails before streaming begins
+- **THEN** the system returns a sanitized JSON error without echoing secrets or internal validation details
+
 ### Requirement: Stream Gemini preflight diagnostics over SSE
-The system SHALL provide a dedicated Gemini preflight SSE endpoint that streams diagnostic events independently from report generation.
+The system SHALL NOT provide Gemini preflight diagnostics over SSE. Gemini preflight SHALL use the standalone JSON preflight request.
 
-#### Scenario: Preflight diagnostic stream starts
-- **WHEN** the browser opens the Gemini preflight SSE stream
-- **THEN** the system emits a checking state and runs Gemini preflight
-- **AND** does not call YouTube or report pipeline code
+#### Scenario: Preflight diagnostic is requested
+- **WHEN** the browser wants to test Gemini setup
+- **THEN** it calls the standalone Gemini preflight request
+- **AND** does not open a preflight SSE connection
 
-#### Scenario: Preflight diagnostic stream fails
-- **WHEN** Gemini preflight fails
-- **THEN** the system emits a sanitized diagnostic error event
-- **AND** closes the preflight stream without changing report-generation stream state
+#### Scenario: Report stream starts
+- **WHEN** the browser starts report streaming
+- **THEN** the stream does not run Gemini preflight diagnostics
+
+### Requirement: Use POST-capable streaming for report rendering
+The system SHALL support starting report rendering with a request body containing the transcript handoff and optional sanitized generation requirements.
+
+#### Scenario: Browser starts report stream
+- **WHEN** transcript fetch has returned a valid transcript handoff
+- **THEN** the browser sends the handoff in the report stream request body
+- **AND** includes non-empty generation requirements when the user provided them
+- **AND** the backend responds with a streaming event response for rendering
+
+#### Scenario: Transcript handoff is too large for a query string
+- **WHEN** the transcript handoff would be large or sensitive
+- **THEN** the browser does not put it in the URL query string
+
+#### Scenario: Generation requirements are omitted
+- **WHEN** the browser starts report streaming without generation requirements
+- **THEN** the backend starts the existing report stream from the transcript handoff
+
+#### Scenario: Generation requirements are invalid
+- **WHEN** the report stream request includes generation requirements with an unsupported shape or excessive length
+- **THEN** the backend rejects the request with a sanitized validation error before calling Gemini
 

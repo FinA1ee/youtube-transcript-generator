@@ -1,6 +1,7 @@
 import {
   AppError,
   Report,
+  ReportGenerationOptions,
   ReportGenerationRequest,
   StreamEvent,
   Transcript
@@ -48,7 +49,12 @@ export async function* reportPipeline(
     if (transcript.captionKind) {
       yield { type: "caption", captionKind: transcript.captionKind, language: transcript.language };
     }
-    yield* streamReportFromTranscript(transcript, deps.geminiClient, signal);
+    yield* streamReportFromTranscript(
+      transcript,
+      deps.geminiClient,
+      { generationRequirements: request.generationRequirements },
+      signal
+    );
   } catch (error) {
     if (signal?.aborted) {
       yield { type: "error", code: "request_canceled", message: "Generation canceled." };
@@ -67,12 +73,13 @@ export async function* reportPipeline(
 export async function* streamReportFromTranscript(
   transcript: Transcript,
   geminiClient: GeminiClient,
+  options: ReportGenerationOptions = {},
   signal?: AbortSignal
 ): AsyncGenerator<StreamEvent> {
   try {
     yield { type: "state", state: "streaming_report", message: "Generating report..." };
     const report = createEmptyReport(transcript);
-    for await (const event of geminiClient.generateReportStream(transcript, signal)) {
+    for await (const event of geminiClient.generateReportStream(transcript, options, signal)) {
       applyReportEvent(report, event);
       yield event;
     }

@@ -79,8 +79,48 @@ export interface Report {
   sections: ReportSection[];
 }
 
+export type ReportContextId = string;
+export type ChapterId = string;
+
+export interface ChapterFiveWOneHSummary {
+  who: string;
+  what: string;
+  when: string;
+  where: string;
+  why: string;
+  how: string;
+}
+
+export interface ChapterFiveWOneHRequest {
+  reportContextId: ReportContextId;
+  chapterId: ChapterId;
+}
+
+export interface ChapterFiveWOneHResponse {
+  reportContextId: ReportContextId;
+  chapterId: ChapterId;
+  summary: ChapterFiveWOneHSummary;
+}
+
+export interface ChapterSummaryContext {
+  reportContextId: ReportContextId;
+  chapterId: ChapterId;
+  chapterTitle: string;
+  transcript: Transcript;
+  generationRequirements?: string | undefined;
+  reportTitle?: string | undefined;
+  reportSubtitle?: string | undefined;
+  headings: ReportHeading[];
+  paragraphs: ReportParagraph[];
+}
+
 export interface ReportGenerationRequest {
   url: string;
+  generationRequirements?: string | undefined;
+}
+
+export interface ReportGenerationOptions {
+  generationRequirements?: string | undefined;
 }
 
 export interface GeminiPreflightResponse {
@@ -101,6 +141,7 @@ export interface TranscriptFetchResponse {
 
 export interface ReportStreamRequest {
   transcriptToken: string;
+  generationRequirements?: string | undefined;
 }
 
 export interface JsonErrorResponse {
@@ -112,6 +153,7 @@ export interface JsonErrorResponse {
 
 export type StreamEvent =
   | { type: "state"; state: GenerationState; message: string }
+  | { type: "report_context"; reportContextId: ReportContextId }
   | { type: "caption"; captionKind: CaptionKind; language?: string | undefined }
   | { type: "title"; title: string; subtitle: string }
   | { type: "heading"; heading: ReportHeading }
@@ -137,6 +179,7 @@ export type AppErrorCode =
   | "gemini_rate_limited"
   | "gemini_service_error"
   | "generation_validation_error"
+  | "report_context_unavailable"
   | "request_canceled";
 
 export class AppError extends Error {

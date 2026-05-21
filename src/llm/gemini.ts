@@ -1,7 +1,15 @@
 import { ApiError, GoogleGenAI } from "@google/genai/web";
 import { z } from "zod";
-import { AppError, Report, StreamEvent, Transcript } from "../shared/types";
-import { buildReportPrompt } from "./prompt";
+import {
+  AppError,
+  ChapterFiveWOneHSummary,
+  ChapterSummaryContext,
+  Report,
+  ReportGenerationOptions,
+  StreamEvent,
+  Transcript
+} from "../shared/types";
+import { buildChapterFiveWOneHPrompt, buildReportPrompt } from "./prompt";
 import { NdjsonReportEventParser } from "./ndjson";
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview";
@@ -34,6 +42,15 @@ const reportSchema = z.object({
     .min(1)
 });
 
+const chapterFiveWOneHSummarySchema = z.object({
+  who: z.string().min(1),
+  what: z.string().min(1),
+  when: z.string().min(1),
+  where: z.string().min(1),
+  why: z.string().min(1),
+  how: z.string().min(1)
+});
+
 export interface GeminiConfig {
   apiKey?: string | undefined;
   model?: string | undefined;
@@ -41,8 +58,20 @@ export interface GeminiConfig {
 
 export interface GeminiClient {
   preflight(signal?: AbortSignal): Promise<void>;
-  generateReport(transcript: Transcript, signal?: AbortSignal): Promise<Report>;
-  generateReportStream(transcript: Transcript, signal?: AbortSignal): AsyncGenerator<StreamEvent>;
+  generateReport(
+    transcript: Transcript,
+    options?: ReportGenerationOptions,
+    signal?: AbortSignal
+  ): Promise<Report>;
+  generateReportStream(
+    transcript: Transcript,
+    options?: ReportGenerationOptions,
+    signal?: AbortSignal
+  ): AsyncGenerator<StreamEvent>;
+  generateChapterFiveWOneH(
+    context: ChapterSummaryContext,
+    signal?: AbortSignal
+  ): Promise<ChapterFiveWOneHSummary>;
 }
 
 export class GeminiApiClient implements GeminiClient {
@@ -68,14 +97,18 @@ export class GeminiApiClient implements GeminiClient {
     }
   }
 
-  async generateReport(transcript: Transcript, signal?: AbortSignal): Promise<Report> {
+  async generateReport(
+    transcript: Transcript,
+    options: ReportGenerationOptions = {},
+    signal?: AbortSignal
+  ): Promise<Report> {
     const report: Report = {
       title: "",
       subtitle: "",
       captionKind: transcript.captionKind,
       sections: []
     };
-    for await (const event of this.generateReportStream(transcript, signal)) {
+    for await (const event of this.generateReportStream(transcript, options, signal)) {
       if (event.type === "title") {
         report.title = event.title;
         report.subtitle = event.subtitle;
@@ -91,13 +124,14 @@ export class GeminiApiClient implements GeminiClient {
 
   async *generateReportStream(
     transcript: Transcript,
+    options: ReportGenerationOptions = {},
     signal?: AbortSignal
   ): AsyncGenerator<StreamEvent> {
     const parser = new NdjsonReportEventParser();
     let emitted = false;
 
     for await (const chunk of this.callGeminiStream(
-      buildReportPrompt(transcript),
+      buildReportPrompt(transcript, options),
       {
         responseMimeType: "text/plain"
       },
@@ -122,6 +156,27 @@ export class GeminiApiClient implements GeminiClient {
         502
       );
     }
+  }
+
+  async generateChapterFiveWOneH(
+    context: ChapterSummaryContext,
+    signal?: AbortSignal
+  ): Promise<ChapterFiveWOneHSummary> {
+    const body = await this.callGemini(
+      buildChapterFiveWOneHPrompt(context),
+      {
+        responseMimeType: "application/json"
+      },
+      signal,
+      "Gemini could not generate the chapter 5W1H summary."
+    );
+    const text = extractGeminiText(body);
+    const parsed = parseGeminiJson(
+      text,
+      "Gemini returned an invalid chapter 5W1H summary.",
+      "generation_validation_error"
+    );
+    return parseChapterFiveWOneHSummary(parsed);
   }
 
   private async callGemini(
@@ -221,11 +276,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseGeminiJson(text: string, message: string): unknown {
+function parseGeminiJson(
+  text: string,
+  message: string,
+  code: "gemini_service_error" | "generation_validation_error" = "gemini_service_error"
+): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new AppError("gemini_service_error", message, 502);
+    throw new AppError(code, message, 502);
   }
 }
 
@@ -236,6 +295,18 @@ function parseReport(value: unknown): Report {
     throw new AppError(
       "generation_validation_error",
       "Gemini returned an invalid report structure.",
+      502
+    );
+  }
+}
+
+function parseChapterFiveWOneHSummary(value: unknown): ChapterFiveWOneHSummary {
+  try {
+    return chapterFiveWOneHSummarySchema.parse(value);
+  } catch {
+    throw new AppError(
+      "generation_validation_error",
+      "Gemini returned an invalid chapter 5W1H summary.",
       502
     );
   }

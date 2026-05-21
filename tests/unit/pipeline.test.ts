@@ -62,6 +62,29 @@ describe("reportPipeline", () => {
     expect(transcriptClient.lastUrl).toBe("https://www.youtube.com/watch?v=abc123XYZ");
   });
 
+  it("passes generation requirements to Gemini without changing transcript fetch", async () => {
+    const transcriptClient = new FakeTranscriptClient(transcript);
+    const geminiClient = new FakeGeminiClient(report);
+
+    await collectPipelineEvents(
+      {
+        url: "https://www.youtube.com/watch?v=abc123XYZ",
+        generationRequirements: "Create a concise executive brief."
+      },
+      {
+        transcriptClient,
+        geminiClient
+      }
+    );
+
+    expect(transcriptClient.calls).toBe(1);
+    expect(transcriptClient.lastUrl).toBe("https://www.youtube.com/watch?v=abc123XYZ");
+    expect(transcriptClient.lastOptions).toEqual({});
+    expect(geminiClient.lastOptions).toEqual({
+      generationRequirements: "Create a concise executive brief."
+    });
+  });
+
   it("emits hierarchical heading events before linked paragraphs", async () => {
     const events = await collectPipelineEvents(
       { url: "https://www.youtube.com/watch?v=abc123XYZ" },

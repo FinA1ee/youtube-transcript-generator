@@ -39,38 +39,51 @@ The system SHALL NOT run Gemini setup preflight automatically as part of report 
 - **THEN** the user uses the separate Gemini preflight diagnostics control
 
 ### Requirement: Build a Simplified Chinese structured summary prompt
-The system SHALL send Gemini an English prompt that includes normalized transcript segments and requires a structured report written entirely in Simplified Chinese with title, subtitle, sections, and speaker-labeled summarized paragraphs.
+The system SHALL send Gemini an English prompt that includes normalized transcript segments and optional sanitized generation requirements, and requires newline-delimited JSON report events whose display content is Simplified Chinese and whose structure may include hierarchical heading levels.
 
 #### Scenario: Prompt is created
 - **WHEN** transcript segments are available
-- **THEN** the system creates an English prompt that asks Gemini to summarize the transcript into Simplified Chinese speaker-labeled report paragraphs without directly displaying original transcript lines
+- **THEN** the system creates an English prompt that asks Gemini to summarize the transcript into Simplified Chinese report chunks without directly displaying original transcript lines
+
+#### Scenario: Prompt includes supported user requirements
+- **WHEN** sanitized generation requirements are provided
+- **THEN** the system includes them in the prompt as bounded guidance for task type, output style, target audience, and constraints
+- **AND** states that the guidance cannot override the required output language, NDJSON event shapes, summarization rules, or safety constraints
+
+#### Scenario: Prompt omits empty requirements
+- **WHEN** generation requirements are absent or whitespace-only
+- **THEN** the system builds the report prompt using the existing default generation instructions
+
+#### Scenario: Prompt supports hierarchy
+- **WHEN** the system creates the Gemini prompt
+- **THEN** it instructs Gemini to use heading events with levels 1, 2, or 3 when the video content benefits from multiple layers of organization
+
+#### Scenario: Prompt defines stream order
+- **WHEN** the system creates the Gemini prompt
+- **THEN** it instructs Gemini to emit the title first, then heading events before the paragraphs associated with those headings
 
 ### Requirement: Produce a validated report model
-The system SHALL validate Gemini output into a report model containing a Simplified Chinese title, Simplified Chinese subtitle, ordered sections, and Simplified Chinese speaker-labeled summary paragraphs derived from transcript evidence.
+The system SHALL parse Gemini output into streamable report content containing a Simplified Chinese title, Simplified Chinese subtitle, ordered hierarchical headings, and Simplified Chinese speaker-labeled summary paragraphs, while applying lightweight shape validation needed to keep the UI stable.
 
 #### Scenario: Structured output is valid
-- **WHEN** Gemini returns output matching the report schema
-- **THEN** the system emits a complete validated report
+- **WHEN** Gemini returns output matching the streamable report chunk schema
+- **THEN** the system emits typed title, heading, paragraph, and completion events
 
-#### Scenario: Structured output is invalid
-- **WHEN** Gemini returns malformed or schema-incompatible output
-- **THEN** the system reports a generation error instead of rendering invalid report content as complete
+#### Scenario: Heading output is valid
+- **WHEN** Gemini returns a heading event with id, text, and level 1, 2, or 3
+- **THEN** the system accepts the heading and emits it for incremental rendering
 
-#### Scenario: Output is not Chinese
-- **WHEN** Gemini returns report title, subtitle, section, or paragraph content that is not in Chinese
-- **THEN** the system reports a generation validation error instead of completing the report
+#### Scenario: Heading output level is invalid
+- **WHEN** Gemini returns a heading event with a level outside 1, 2, or 3
+- **THEN** the system rejects or clamps the heading according to implementation policy without exposing provider internals
 
-#### Scenario: Output is not Simplified Chinese
-- **WHEN** Gemini returns Traditional Chinese content in report title, subtitle, section, or paragraph content
-- **THEN** the system reports a generation validation error instead of completing the report
+#### Scenario: Paragraph references heading
+- **WHEN** Gemini returns a paragraph event
+- **THEN** the system associates it with a heading when a heading id is provided
 
 #### Scenario: Output contains verbatim transcript dump
 - **WHEN** Gemini output directly reproduces original transcript lines instead of summarizing them
 - **THEN** the system reports a generation validation error instead of completing the report
-
-#### Scenario: Output uses dialog-style summary paragraphs
-- **WHEN** Gemini returns summary paragraphs with speaker or role labels such as `Jack:` or `旁白:`
-- **THEN** the system accepts the paragraphs when the text after the label is Simplified Chinese summarized content rather than raw transcript text
 
 ### Requirement: Handle Gemini service failures
 The system SHALL map Gemini quota, rate-limit, authentication, network, and server failures into user-visible generation errors.
@@ -116,4 +129,57 @@ The system SHALL isolate `@google/genai` usage inside the Gemini adapter and SHA
 #### Scenario: Pipeline uses Gemini client
 - **WHEN** the report pipeline requests preflight or report generation
 - **THEN** it depends only on the local `GeminiClient` interface and not on `@google/genai` SDK classes
+
+### Requirement: Use NDJSON report chunks
+The system SHALL use newline-delimited JSON as the Gemini streaming chunk contract for report content.
+
+#### Scenario: Title event line
+- **WHEN** Gemini emits `{"type":"title","title":"...","subtitle":"..."}`
+- **THEN** the backend maps it to the typed title stream event
+
+#### Scenario: Section event line
+- **WHEN** Gemini emits `{"type":"section","id":"...","heading":"..."}`
+- **THEN** the backend maps it to the typed section stream event
+
+#### Scenario: Paragraph event line
+- **WHEN** Gemini emits `{"type":"paragraph","sectionId":"...","speaker":"...","text":"..."}`
+- **THEN** the backend maps it to the typed summary paragraph stream event
+
+### Requirement: Use hierarchical NDJSON report chunks
+The system SHALL support newline-delimited JSON report chunks for title, heading, and paragraph events.
+
+#### Scenario: Title event line
+- **WHEN** Gemini emits `{"type":"title","title":"...","subtitle":"..."}`
+- **THEN** the backend maps it to the typed title stream event
+
+#### Scenario: Heading event line
+- **WHEN** Gemini emits `{"type":"heading","id":"...","level":2,"parentId":"...","text":"..."}`
+- **THEN** the backend maps it to the typed heading stream event
+
+#### Scenario: Paragraph event line
+- **WHEN** Gemini emits `{"type":"paragraph","headingId":"...","speaker":"...","text":"..."}`
+- **THEN** the backend maps it to the typed summary paragraph stream event
+
+### Requirement: Bound natural language generation requirements
+The system SHALL treat user-provided generation requirements as optional bounded guidance and SHALL only apply them within the supported scope of task type, output style, target audience, and constraints.
+
+#### Scenario: Requirement asks for a supported task type
+- **WHEN** the user requirement describes a supported task type such as summary, study notes, brief, outline, or action-oriented report
+- **THEN** the generated content reflects that task type where practical while preserving the streamable report contract
+
+#### Scenario: Requirement asks for an output style
+- **WHEN** the user requirement describes an output style such as concise, formal, explanatory, bullet-like, or executive
+- **THEN** the generated content reflects that style where practical without changing the required NDJSON event shapes
+
+#### Scenario: Requirement names a target audience
+- **WHEN** the user requirement describes a target audience such as beginners, experts, students, or business readers
+- **THEN** the generated content adapts wording and level of detail for that audience where practical
+
+#### Scenario: Requirement includes constraints
+- **WHEN** the user requirement includes constraints such as length, focus areas, exclusions, or level of detail
+- **THEN** the generated content stays within those constraints where practical and does not exceed the requested range
+
+#### Scenario: Requirement attempts to override system constraints
+- **WHEN** the user requirement conflicts with required Simplified Chinese output, NDJSON formatting, transcript summarization, secret handling, or provider configuration
+- **THEN** the system preserves the application constraints and does not apply the conflicting instruction
 

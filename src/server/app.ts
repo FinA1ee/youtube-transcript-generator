@@ -2,9 +2,11 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { clientScript, renderAppHtml, styles } from "../client/assets";
 import { GeminiApiClient, GeminiClient, GeminiConfig } from "../llm/gemini";
+import { ReportContextStore } from "../reports/context";
 import { streamReportFromTranscript } from "../reports/pipeline";
 import {
   AppError,
+  ChapterFiveWOneHResponse,
   GeminiPreflightResponse,
   JsonErrorResponse,
   StreamEvent,
@@ -13,6 +15,8 @@ import {
 import { TranscriptApiClient, TranscriptClient } from "../transcripts/client";
 import { signTranscriptToken, verifyTranscriptToken } from "../transcripts/token";
 import { normalizeYoutubeUrl } from "../youtube/url";
+
+const MAX_GENERATION_REQUIREMENTS_LENGTH = 1000;
 
 export interface Env {
   GEMINI_API_KEY?: string;
@@ -28,6 +32,7 @@ export interface Env {
 export interface AppFactories {
   createTranscriptClient?: (env: Env, fetcher: typeof fetch) => TranscriptClient;
   createGeminiClient?: (env: Env) => GeminiClient;
+  reportContextStore?: ReportContextStore;
 }
 
 export function createApp(
@@ -35,6 +40,7 @@ export function createApp(
   factories: AppFactories = {}
 ): Hono<{ Bindings: Env }> {
   const app = new Hono<{ Bindings: Env }>();
+  const reportContextStore = factories.reportContextStore ?? new ReportContextStore();
 
   app.get("/", (c) => {
     const env = (c.env as Env | undefined) ?? {};
@@ -119,12 +125,22 @@ export function createApp(
         new AppError("transcript_token_error", "Transcript token is invalid.", 400)
       );
     }
+    const generationRequirementsResult = parseGenerationRequirements(
+      body.value["generationRequirements"]
+    );
+    if (!generationRequirementsResult.ok) {
+      return jsonError(c, generationRequirementsResult.error);
+    }
 
     try {
       const transcript = await verifyTranscriptToken(
         body.value["transcriptToken"],
         env.TRANSCRIPT_TOKEN_SECRET
       );
+      const generationOptions = generationRequirementsResult.value
+        ? { generationRequirements: generationRequirementsResult.value }
+        : {};
+      const reportContext = reportContextStore.create(transcript, generationOptions);
       return streamSSE(c, async (stream) => {
         const geminiClient =
           factories.createGeminiClient?.(env) ?? new GeminiApiClient(createGeminiConfig(env));
@@ -133,15 +149,50 @@ export function createApp(
         });
 
         let id = 0;
+        await stream.writeSSE(
+          toSseMessage({ type: "report_context", reportContextId: reportContext.id }, id)
+        );
+        id += 1;
         for await (const event of streamReportFromTranscript(
           transcript,
           geminiClient,
+          generationOptions,
           abortController.signal
         )) {
+          reportContextStore.applyEvent(reportContext.id, event);
           await stream.writeSSE(toSseMessage(event, id));
           id += 1;
         }
       });
+    } catch (error) {
+      return jsonError(c, error);
+    }
+  });
+
+  app.post("/api/reports/chapter-5w1h", async (c) => {
+    const body = await readJsonBody(c.req.raw);
+    if (!body.ok) {
+      return jsonError(c, body.error);
+    }
+    const env = (c.env as Env | undefined) ?? {};
+
+    try {
+      if (!isRecord(body.value)) {
+        throw new AppError("generation_validation_error", "Chapter summary request is invalid.");
+      }
+      rejectFullContentFields(body.value);
+      const reportContextId = readRequiredString(body.value, "reportContextId");
+      const chapterId = readRequiredString(body.value, "chapterId");
+      const context = reportContextStore.getChapterSummaryContext(reportContextId, chapterId);
+      const geminiClient =
+        factories.createGeminiClient?.(env) ?? new GeminiApiClient(createGeminiConfig(env));
+      const summary = await geminiClient.generateChapterFiveWOneH(context);
+      const response: ChapterFiveWOneHResponse = {
+        reportContextId,
+        chapterId,
+        summary
+      };
+      return c.json(response);
     } catch (error) {
       return jsonError(c, error);
     }
@@ -224,6 +275,53 @@ async function readJsonBody(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseGenerationRequirements(
+  value: unknown
+): { ok: true; value?: string | undefined } | { ok: false; error: AppError } {
+  if (value === undefined || value === null) {
+    return { ok: true };
+  }
+  if (typeof value !== "string") {
+    return {
+      ok: false,
+      error: new AppError("generation_validation_error", "Generation requirements must be text.")
+    };
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return { ok: true };
+  }
+  if (trimmed.length > MAX_GENERATION_REQUIREMENTS_LENGTH) {
+    return {
+      ok: false,
+      error: new AppError(
+        "generation_validation_error",
+        `Generation requirements must be ${String(MAX_GENERATION_REQUIREMENTS_LENGTH)} characters or fewer.`
+      )
+    };
+  }
+  return { ok: true, value: trimmed };
+}
+
+function readRequiredString(value: Record<string, unknown>, key: string): string {
+  const field = value[key];
+  if (typeof field !== "string" || field.trim().length === 0) {
+    throw new AppError("generation_validation_error", "Chapter summary request is invalid.");
+  }
+  return field.trim();
+}
+
+function rejectFullContentFields(value: Record<string, unknown>): void {
+  for (const key of ["article", "transcript", "paragraphs", "report", "content"]) {
+    if (key in value) {
+      throw new AppError(
+        "generation_validation_error",
+        "Chapter summary requests must use server-saved context."
+      );
+    }
+  }
 }
 
 function toJsonError(error: unknown, fallbackMessage = "Request failed."): JsonErrorResponse {

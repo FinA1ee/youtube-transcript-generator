@@ -11,7 +11,13 @@ import {
 import React, { useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../react/styles.css";
-import { AppErrorCode, CaptionKind, ReportHeading, StreamEvent } from "../../shared/types";
+import {
+  AppErrorCode,
+  CaptionKind,
+  ChapterFiveWOneHSummary,
+  ReportHeading,
+  StreamEvent
+} from "../../shared/types";
 
 interface JsonErrorResponse {
   error?: {
@@ -31,9 +37,15 @@ interface RenderBlock {
   kind: "title" | "subtitle" | "heading" | "paragraph";
   level?: 1 | 2 | 3;
   parentId?: string;
+  headingId?: string;
   text: string;
   rendered: string;
 }
+
+type ChapterSummaryState =
+  | { status: "loading" }
+  | { status: "success"; summary: ChapterFiveWOneHSummary }
+  | { status: "error"; message: string };
 
 type StatusTone = "idle" | "active" | "success" | "error" | "warning";
 
@@ -49,8 +61,10 @@ function App(): React.ReactElement {
   const skipRef = useRef(matchMedia("(prefers-reduced-motion: reduce)").matches);
   const retryRef = useRef(0);
   const tokenRef = useRef("");
+  const generationRequirementsRef = useRef("");
 
   const [url, setUrl] = useState("");
+  const [generationRequirements, setGenerationRequirements] = useState("");
   const [status, setStatus] = useState("Ready.");
   const [tone, setTone] = useState<StatusTone>("idle");
   const [diagnosticStatus, setDiagnosticStatus] = useState("Gemini test not run.");
@@ -59,6 +73,8 @@ function App(): React.ReactElement {
   const [hasReport, setHasReport] = useState(false);
   const [caption, setCaption] = useState("");
   const [blocks, setBlocks] = useState<RenderBlock[]>([]);
+  const [reportContextId, setReportContextId] = useState("");
+  const [chapterSummaries, setChapterSummaries] = useState<Record<string, ChapterSummaryState>>({});
 
   const statusIcon = useMemo(() => {
     if (tone === "active") return <Loader2 className="status-icon spin" aria-hidden="true" />;
@@ -73,9 +89,12 @@ function App(): React.ReactElement {
     closeStream();
     retryRef.current = 0;
     tokenRef.current = "";
+    generationRequirementsRef.current = generationRequirements.trim();
     skipRef.current = matchMedia("(prefers-reduced-motion: reduce)").matches;
     queueRef.current = [];
     setBlocks([]);
+    setReportContextId("");
+    setChapterSummaries({});
     setCaption("");
     setHasReport(false);
     setBusy(true);
@@ -93,7 +112,7 @@ function App(): React.ReactElement {
             : "Manual captions"
         );
       }
-      await openStream(transcript.transcriptToken);
+      await openStream(transcript.transcriptToken, generationRequirementsRef.current);
     } catch (error) {
       closeStream();
       setTone("error");
@@ -116,7 +135,10 @@ function App(): React.ReactElement {
     return body;
   }
 
-  async function openStream(transcriptToken: string): Promise<void> {
+  async function openStream(
+    transcriptToken: string,
+    currentGenerationRequirements: string
+  ): Promise<void> {
     const controller = new AbortController();
     abortRef.current = controller;
     setStreaming(true);
@@ -124,10 +146,14 @@ function App(): React.ReactElement {
     setStatus("Generating report...");
 
     try {
+      const requestBody =
+        currentGenerationRequirements.length > 0
+          ? { transcriptToken, generationRequirements: currentGenerationRequirements }
+          : { transcriptToken };
       const response = await fetch("/api/reports/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ transcriptToken }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 
@@ -161,7 +187,7 @@ function App(): React.ReactElement {
       setStatus(`Reconnecting ${String(retryRef.current)}...`);
       await wait(backoffMs(retryRef.current));
       if (abortRef.current === controller) {
-        await openStream(transcriptToken);
+        await openStream(transcriptToken, currentGenerationRequirements);
       }
     }
   }
@@ -194,6 +220,10 @@ function App(): React.ReactElement {
       setStatus(event.message);
       return;
     }
+    if (event.type === "report_context") {
+      setReportContextId(event.reportContextId);
+      return;
+    }
     if (event.type === "caption") {
       setCaption(
         event.captionKind === "auto_generated" ? "Auto-generated captions" : "Manual captions"
@@ -209,16 +239,28 @@ function App(): React.ReactElement {
     }
     if (event.type === "heading") {
       setHasReport(true);
-      addBlock(`heading:${event.heading.id}`, "heading", event.heading.text, event.heading);
+      addBlock(
+        `heading:${event.heading.id}`,
+        "heading",
+        event.heading.text,
+        event.heading,
+        event.heading.id
+      );
       return;
     }
     if (event.type === "section") {
       setHasReport(true);
-      addBlock(`heading:${event.section.id}`, "heading", event.section.heading, {
-        id: event.section.id,
-        level: 1,
-        text: event.section.heading
-      });
+      addBlock(
+        `heading:${event.section.id}`,
+        "heading",
+        event.section.heading,
+        {
+          id: event.section.id,
+          level: 1,
+          text: event.section.heading
+        },
+        event.section.id
+      );
       return;
     }
     if (event.type === "summary_paragraph") {
@@ -245,7 +287,8 @@ function App(): React.ReactElement {
     id: string,
     kind: RenderBlock["kind"],
     text: string,
-    heading?: ReportHeading
+    heading?: ReportHeading,
+    headingId?: string
   ): void {
     const block: RenderBlock = {
       id,
@@ -253,7 +296,8 @@ function App(): React.ReactElement {
       text,
       rendered: "",
       ...(heading ? { level: heading.level } : {}),
-      ...(heading?.parentId ? { parentId: heading.parentId } : {})
+      ...(heading?.parentId ? { parentId: heading.parentId } : {}),
+      ...(headingId ? { headingId } : {})
     };
     setBlocks((current) =>
       current.some((item) => item.id === id) ? current : [...current, block]
@@ -298,6 +342,34 @@ function App(): React.ReactElement {
     }
   }
 
+  async function requestChapterSummary(chapterId: string): Promise<void> {
+    if (!reportContextId) return;
+    const existing = chapterSummaries[chapterId];
+    if (existing?.status === "success") return;
+    setChapterSummaries((current) => ({ ...current, [chapterId]: { status: "loading" } }));
+    try {
+      const response = await fetch("/api/reports/chapter-5w1h", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reportContextId, chapterId })
+      });
+      const body: { summary?: ChapterFiveWOneHSummary } & JsonErrorResponse = await response.json();
+      const summary = body.summary;
+      if (!response.ok || !summary) {
+        throw new Error(body.error?.message ?? "Chapter 5W1H summary failed.");
+      }
+      setChapterSummaries((current) => ({
+        ...current,
+        [chapterId]: { status: "success", summary }
+      }));
+    } catch (error) {
+      setChapterSummaries((current) => ({
+        ...current,
+        [chapterId]: { status: "error", message: readErrorMessage(error) }
+      }));
+    }
+  }
+
   function cancel(): void {
     closeStream();
     setTone("warning");
@@ -312,6 +384,10 @@ function App(): React.ReactElement {
     queueRef.current = [];
     setBlocks([]);
     setCaption("");
+    setReportContextId("");
+    setChapterSummaries({});
+    setGenerationRequirements("");
+    generationRequirementsRef.current = "";
     setHasReport(false);
     setBusy(false);
     setStreaming(false);
@@ -372,6 +448,15 @@ function App(): React.ReactElement {
             <Square size={15} />
             Cancel
           </button>
+          <textarea
+            value={generationRequirements}
+            onChange={(event) => {
+              setGenerationRequirements(event.target.value);
+            }}
+            maxLength={1000}
+            placeholder="Optional generation requirements, such as task type, output style, target audience, or constraints"
+            aria-label="Optional generation requirements"
+          />
         </form>
 
         <div className={`status-banner ${tone}`} role="status" aria-live="polite">
@@ -401,12 +486,29 @@ function App(): React.ReactElement {
         {diagnosticEnabled ? <p className="diagnostic">{diagnosticStatus}</p> : null}
       </section>
 
-      <ReportDocument blocks={blocks} />
+      <ReportDocument
+        blocks={blocks}
+        reportContextId={reportContextId}
+        chapterSummaries={chapterSummaries}
+        onRequestChapterSummary={(chapterId) => {
+          void requestChapterSummary(chapterId);
+        }}
+      />
     </div>
   );
 }
 
-function ReportDocument({ blocks }: { blocks: RenderBlock[] }): React.ReactElement {
+function ReportDocument({
+  blocks,
+  reportContextId,
+  chapterSummaries,
+  onRequestChapterSummary
+}: {
+  blocks: RenderBlock[];
+  reportContextId: string;
+  chapterSummaries: Record<string, ChapterSummaryState>;
+  onRequestChapterSummary: (chapterId: string) => void;
+}): React.ReactElement {
   if (blocks.length === 0) {
     return (
       <article className="report empty" aria-live="polite">
@@ -431,15 +533,59 @@ function ReportDocument({ blocks }: { blocks: RenderBlock[] }): React.ReactEleme
         if (block.kind === "heading") {
           const level = block.level ?? 1;
           const className = `report-heading level-${String(level)}`;
+          const isChapter = level === 1 && block.headingId;
+          const summaryState = block.headingId ? chapterSummaries[block.headingId] : undefined;
           return (
-            <div key={block.id} className={className}>
-              {block.rendered || "\u00a0"}
-            </div>
+            <React.Fragment key={block.id}>
+              <div className={className}>
+                <span>{block.rendered || "\u00a0"}</span>
+                {isChapter && reportContextId ? (
+                  <button
+                    className="chapter-action"
+                    type="button"
+                    onClick={() => {
+                      onRequestChapterSummary(block.headingId ?? "");
+                    }}
+                    disabled={summaryState?.status === "loading"}
+                  >
+                    [5W1H]
+                  </button>
+                ) : null}
+              </div>
+              {isChapter && summaryState ? <ChapterSummaryPanel state={summaryState} /> : null}
+            </React.Fragment>
           );
         }
         return <p key={block.id}>{block.rendered || "\u00a0"}</p>;
       })}
     </article>
+  );
+}
+
+function ChapterSummaryPanel({ state }: { state: ChapterSummaryState }): React.ReactElement {
+  if (state.status === "loading") {
+    return <div className="chapter-summary loading">Loading 5W1H summary...</div>;
+  }
+  if (state.status === "error") {
+    return <div className="chapter-summary error">{state.message}</div>;
+  }
+  const rows: [string, string][] = [
+    ["Who", state.summary.who],
+    ["What", state.summary.what],
+    ["When", state.summary.when],
+    ["Where", state.summary.where],
+    ["Why", state.summary.why],
+    ["How", state.summary.how]
+  ];
+  return (
+    <dl className="chapter-summary">
+      {rows.map(([label, value]) => (
+        <React.Fragment key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
   );
 }
 

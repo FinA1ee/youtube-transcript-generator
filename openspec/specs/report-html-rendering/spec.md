@@ -4,49 +4,69 @@
 TBD - created by archiving change build-streaming-youtube-report-app. Update Purpose after archive.
 ## Requirements
 ### Requirement: Render report input and status
-The system SHALL render an English-language HTML page where users can submit a YouTube URL, test Gemini setup separately, and see current generation or diagnostic status without navigating away.
+The system SHALL render an English-language React UI where users can submit a YouTube URL, optionally provide natural language generation requirements, fetch transcript readiness, generate a streamed report, clearly understand current status, and optionally test Gemini setup in diagnostic mode without navigating away.
 
 #### Scenario: Page loads
 - **WHEN** a user opens the application root page
-- **THEN** the system displays a YouTube URL input, a submit control, a Gemini test control, and an empty report area
+- **THEN** the system displays a themed React interface with a YouTube URL input, an optional generation requirements input, a submit control, a prominent status area, and an empty report area
+
+#### Scenario: Generation requirements are optional
+- **WHEN** a user submits a YouTube URL without generation requirements
+- **THEN** the page starts the existing transcript fetch and report generation workflow without requiring additional input
+
+#### Scenario: User enters generation requirements
+- **WHEN** a user enters natural language generation requirements before submitting
+- **THEN** the page keeps the requirements associated with the current report request for stream startup and retry
+- **AND** the requirements can describe task type, output style, target audience, or constraints
 
 #### Scenario: Generation status updates
-- **WHEN** the browser receives report progress events
-- **THEN** the page updates the visible English report status for the current generation step
+- **WHEN** the browser receives report stream events or standalone request results
+- **THEN** the page updates a visually prominent English status banner for the current step
 
-#### Scenario: Submit starts state notifications
+#### Scenario: Submit starts transcript fetch
 - **WHEN** a user submits a YouTube URL
-- **THEN** the page immediately displays a generation state notification before report content is available
+- **THEN** the page immediately displays an English transcript-fetching notification
+- **AND** sends a standalone transcript fetch request before opening the report stream
+
+#### Scenario: Transcript fetch succeeds
+- **WHEN** the standalone transcript fetch request returns a valid transcript handoff
+- **THEN** the page starts the report rendering stream with the transcript handoff and any non-empty generation requirements
 
 #### Scenario: Backend state changes
-- **WHEN** the browser receives report state or progress events for validation, caption fetching, transcript preparation, Gemini generation, streaming, completion, retry, or errors
-- **THEN** the page displays a simple English loading state before report content renders and concise English completion, cancellation, retry, or error notifications afterward
+- **WHEN** standalone transcript fetch or report stream state changes occur
+- **THEN** the page displays concise English loading, completion, cancellation, retry, or error notifications for the current step
 
 #### Scenario: Caption kind is known
 - **WHEN** the selected caption track is manually authored or auto-generated
 - **THEN** the page displays an English label indicating whether captions are manual or auto-generated
 
+#### Scenario: User clears current content
+- **WHEN** the user clicks the clear-content or new-link control
+- **THEN** the page closes any active stream, clears current report content and status derived from that report, hides report-only controls, and focuses the URL input
+
 ### Requirement: Render streamed Simplified Chinese summary structure
-The system SHALL progressively render Simplified Chinese report title, subtitle, sections, and speaker-labeled summary paragraphs as typed stream events arrive.
+The system SHALL progressively render Simplified Chinese report title, subtitle, hierarchical headings, and speaker-labeled summary paragraphs as typed stream events arrive.
 
 #### Scenario: Title and subtitle arrive
 - **WHEN** the browser receives title and subtitle report events
-- **THEN** the page renders Simplified Chinese title and subtitle content immediately in the report header area
+- **THEN** the page creates report header elements immediately
+- **AND** renders their Simplified Chinese text incrementally through the stream renderer
 
-#### Scenario: Section content arrives
-- **WHEN** the browser receives section report events
-- **THEN** the page appends or updates Simplified Chinese section headings immediately in report order
+#### Scenario: Hierarchical heading content arrives
+- **WHEN** the browser receives a heading event with level 1, 2, or 3
+- **THEN** the page renders the heading in report order with visual hierarchy equivalent to h1, h2, or h3
+- **AND** renders heading text incrementally through the stream renderer
 
 #### Scenario: Summary paragraph arrives
-- **WHEN** the browser receives summary paragraph events
+- **WHEN** the browser receives summary paragraph events linked to a heading
 - **THEN** the page renders each paragraph as a speaker-labeled Simplified Chinese summary of transcript content rather than original transcript lines
 
 ### Requirement: Use typewriter-style incremental rendering
-The system SHALL display streamed report text with a typewriter-style effect as content arrives, without waiting for the complete report.
+The system SHALL display streamed report title, subtitle, heading, and paragraph text with a typewriter-style effect as content arrives, without waiting for the complete report.
 
 #### Scenario: First report content arrives
-- **WHEN** the browser receives the first summary paragraph event
-- **THEN** the page begins displaying that paragraph incrementally before receiving a complete event
+- **WHEN** the browser receives the first title, heading, or summary paragraph event
+- **THEN** the page begins displaying that text incrementally before receiving a complete event
 
 #### Scenario: Stream arrives faster than rendering
 - **WHEN** report events arrive faster than the typewriter effect can display them
@@ -57,8 +77,12 @@ The system SHALL display streamed report text with a typewriter-style effect as 
 - **THEN** the page disables or shortens the typewriter effect while still rendering streamed content incrementally
 
 #### Scenario: User skips animation
-- **WHEN** the user clicks the skip animation control
+- **WHEN** report generation has begun and the user clicks the skip animation control
 - **THEN** the page immediately renders queued report content and disables the typewriter effect for the current report
+
+#### Scenario: Report generation has not begun
+- **WHEN** no report stream is active and no report content is queued
+- **THEN** the page hides the skip animation control
 
 ### Requirement: Avoid rendering original transcript as final content
 The system SHALL NOT render raw original transcript lines as the final report content.
@@ -102,20 +126,28 @@ The system SHALL keep Gemini API keys and Worker secret values out of all HTML, 
 - **THEN** the response contains no Gemini API key or Cloudflare credential values
 
 ### Requirement: Render Gemini preflight diagnostics
-The system SHALL render Gemini preflight diagnostic state and result in English without using the report content area.
+The system SHALL render Gemini preflight diagnostic state and result in English without using the report content area, and SHALL hide diagnostic controls unless diagnostic mode is enabled.
+
+#### Scenario: Diagnostic mode is disabled
+- **WHEN** the page loads without diagnostic controls enabled
+- **THEN** the Gemini test button is not visible
+
+#### Scenario: Diagnostic mode is enabled
+- **WHEN** the page loads with diagnostic controls enabled
+- **THEN** the Gemini test button is visible
 
 #### Scenario: User clicks Gemini test button
 - **WHEN** the user clicks the Gemini test button
-- **THEN** the page opens the Gemini preflight SSE stream
+- **THEN** the page sends a standalone Gemini preflight request
 - **AND** displays an English checking state
 
 #### Scenario: Gemini test succeeds
-- **WHEN** the browser receives a successful Gemini preflight event
+- **WHEN** the standalone preflight request returns success
 - **THEN** the page displays an English success notification
-- **AND** does not create report title, section, paragraph, or caption elements
+- **AND** does not create report title, heading, paragraph, or caption elements
 
 #### Scenario: Gemini test fails
-- **WHEN** the browser receives a sanitized Gemini preflight error event
+- **WHEN** the standalone preflight request returns a sanitized Gemini error
 - **THEN** the page displays an English error notification
 - **AND** leaves any existing report content unchanged
 

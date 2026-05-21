@@ -4,11 +4,11 @@
 TBD - created by archiving change separate-gemini-preflight-check. Update Purpose after archive.
 ## Requirements
 ### Requirement: User-triggered Gemini preflight
-The system SHALL provide a separate user-triggered control for testing whether the configured Gemini API call is valid.
+The system SHALL provide a separate user-triggered control for testing whether the configured Gemini API call is valid through a standalone JSON server request.
 
 #### Scenario: User starts preflight
 - **WHEN** the user clicks the Gemini test button
-- **THEN** the browser opens the dedicated Gemini preflight SSE stream
+- **THEN** the browser sends a dedicated Gemini preflight request to the server
 - **AND** does not require or send a YouTube URL
 
 #### Scenario: Preflight uses no user content
@@ -17,22 +17,21 @@ The system SHALL provide a separate user-triggered control for testing whether t
 - **AND** it does not send any YouTube URL, caption segment, transcript text, report prompt, or report content
 
 ### Requirement: Stream Gemini preflight result
-The system SHALL stream Gemini preflight progress and terminal result over SSE.
+The system SHALL NOT stream Gemini preflight progress or terminal result over SSE. It SHALL return the Gemini preflight result as a standalone JSON response.
 
 #### Scenario: Preflight succeeds
 - **WHEN** Gemini accepts the setup-check call and returns the expected diagnostic output
-- **THEN** the SSE stream emits a success result
+- **THEN** the JSON response reports success
 - **AND** the browser shows an English success notification
 
 #### Scenario: Preflight fails
 - **WHEN** Gemini authentication, quota, rate-limit, model availability, network, service, or output validation fails during preflight
-- **THEN** the SSE stream emits a sanitized error event
+- **THEN** the JSON response contains a sanitized error
 - **AND** the browser shows an English error notification
 
-#### Scenario: Preflight stream completes
-- **WHEN** the preflight emits success or error
-- **THEN** the browser closes the diagnostic SSE connection
-- **AND** restores the test button to an idle state
+#### Scenario: Preflight request completes
+- **WHEN** the preflight request returns success or error
+- **THEN** the browser restores the test button to an idle state
 
 ### Requirement: Keep preflight diagnostics separate from report rendering
 The system SHALL keep Gemini preflight diagnostic results out of the report rendering area.
